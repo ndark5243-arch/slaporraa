@@ -1,0 +1,503 @@
+-- Script: Seguir jogador pelo nome (ATRÁS) com NoClip + Sistema de Emotes em Loop
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Remove GUI antiga
+if PlayerGui:FindFirstChild("FollowPlayerGUI") then
+    PlayerGui:FindFirstChild("FollowPlayerGUI"):Destroy()
+end
+
+-- Vars principais
+local targetPlayer = nil
+local followConnection = nil
+local noclipConnection = nil
+local isFollowing = false
+local isNoclipEnabled = false
+
+-- Vars do sistema de emotes
+local currentEmoteTrack = nil
+local emoteConnection = nil
+local isEmoteActive = false
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- Configurações do emote
+local EmoteSettings = {
+    ["Fade In"] = 0.1,
+    ["Fade Out"] = 0.1,
+    ["Weight"] = 1,
+    ["Speed"] = 1,
+    ["Time Position"] = 0
+}
+
+-- IDs de animações disponíveis (adicione mais IDs aqui)
+local EmoteIDs = {
+    ["Demoman Laugh"] = "113597612306397",
+    ["Default Dance"] = "10921287273",
+    ["Orange Justice"] = "4846001768",
+    -- Adicione mais emotes aqui se quiser
+}
+
+-- Atualizar referências quando respawnar
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = newCharacter:WaitForChild("Humanoid")
+end)
+
+-- GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "FollowPlayerGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() ScreenGui.Parent = PlayerGui end)
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+MainFrame.BackgroundTransparency = 0.1
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0.5, -150, 0.3, 0)
+MainFrame.Size = UDim2.new(0, 300, 0, 320) -- Aumentado para caber os controles de emote
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.ZIndex = 10
+
+local UICorner = Instance.new("UICorner", MainFrame)
+UICorner.CornerRadius = UDim.new(0,12)
+
+local UIStroke = Instance.new("UIStroke", MainFrame)
+UIStroke.Color = Color3.fromRGB(50,50,50)
+UIStroke.Thickness = 2
+
+local TitleLabel = Instance.new("TextLabel", MainFrame)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Position = UDim2.new(0,0,0,15)
+TitleLabel.Size = UDim2.new(1,0,0,30)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.Text = "BANG LINUX HUB V.01"
+TitleLabel.TextColor3 = Color3.fromRGB(255,255,255)
+TitleLabel.TextSize = 16
+TitleLabel.TextStrokeTransparency = 0.8
+
+-- Campo de nome do jogador
+local PlayerNameBox = Instance.new("TextBox", MainFrame)
+PlayerNameBox.Name = "PlayerNameBox"
+PlayerNameBox.BackgroundColor3 = Color3.fromRGB(25,25,25)
+PlayerNameBox.BorderSizePixel = 0
+PlayerNameBox.Position = UDim2.new(0.1,0,0.18,0)
+PlayerNameBox.Size = UDim2.new(0.8,0,0,35)
+PlayerNameBox.Font = Enum.Font.Gotham
+PlayerNameBox.PlaceholderText = "Digite o nick da puta ou corno..."
+PlayerNameBox.Text = ""
+PlayerNameBox.TextColor3 = Color3.fromRGB(255,255,255)
+PlayerNameBox.TextSize = 14
+PlayerNameBox.ClearTextOnFocus = false
+
+local PlayerNameBoxCorner = Instance.new("UICorner", PlayerNameBox)
+PlayerNameBoxCorner.CornerRadius = UDim.new(0,8)
+local PlayerNameBoxStroke = Instance.new("UIStroke", PlayerNameBox)
+PlayerNameBoxStroke.Color = Color3.fromRGB(70,70,70)
+PlayerNameBoxStroke.Thickness = 1
+
+-- Botões de follow
+local FollowButton = Instance.new("TextButton", MainFrame)
+FollowButton.Name = "FollowButton"
+FollowButton.BackgroundColor3 = Color3.fromRGB(0,120,0)
+FollowButton.BorderSizePixel = 0
+FollowButton.Position = UDim2.new(0.1,0,0.35,0)
+FollowButton.Size = UDim2.new(0.35,0,0,35)
+FollowButton.Font = Enum.Font.GothamBold
+FollowButton.Text = "▶ BANG"
+FollowButton.TextColor3 = Color3.fromRGB(255,255,255)
+FollowButton.TextSize = 12
+local FollowButtonCorner = Instance.new("UICorner", FollowButton)
+FollowButtonCorner.CornerRadius = UDim.new(0,8)
+
+local StopButton = Instance.new("TextButton", MainFrame)
+StopButton.Name = "StopButton"
+StopButton.BackgroundColor3 = Color3.fromRGB(120,0,0)
+StopButton.BorderSizePixel = 0
+StopButton.Position = UDim2.new(0.55,0,0.35,0)
+StopButton.Size = UDim2.new(0.35,0,0,35)
+StopButton.Font = Enum.Font.GothamBold
+StopButton.Text = "STOP"
+StopButton.TextColor3 = Color3.fromRGB(255,255,255)
+StopButton.TextSize = 12
+local StopButtonCorner = Instance.new("UICorner", StopButton)
+StopButtonCorner.CornerRadius = UDim.new(0,8)
+
+-- Separador de emotes
+local EmoteSeparator = Instance.new("TextLabel", MainFrame)
+EmoteSeparator.BackgroundTransparency = 1
+EmoteSeparator.Position = UDim2.new(0,0,0.5,0)
+EmoteSeparator.Size = UDim2.new(1,0,0,25)
+EmoteSeparator.Font = Enum.Font.GothamBold
+EmoteSeparator.Text = "CONTROLES DE EMOTE"
+EmoteSeparator.TextColor3 = Color3.fromRGB(200,200,200)
+EmoteSeparator.TextSize = 14
+
+-- Campo de ID do emote
+local EmoteIdBox = Instance.new("TextBox", MainFrame)
+EmoteIdBox.Name = "EmoteIdBox"
+EmoteIdBox.BackgroundColor3 = Color3.fromRGB(25,25,25)
+EmoteIdBox.BorderSizePixel = 0
+EmoteIdBox.Position = UDim2.new(0.1,0,0.58,0)
+EmoteIdBox.Size = UDim2.new(0.8,0,0,30)
+EmoteIdBox.Font = Enum.Font.Gotham
+EmoteIdBox.PlaceholderText = "ID da animação (ex: 113597612306397)"
+EmoteIdBox.Text = "113597612306397" -- ID padrão do Demoman Laugh
+EmoteIdBox.TextColor3 = Color3.fromRGB(255,255,255)
+EmoteIdBox.TextSize = 12
+EmoteIdBox.ClearTextOnFocus = false
+
+local EmoteIdBoxCorner = Instance.new("UICorner", EmoteIdBox)
+EmoteIdBoxCorner.CornerRadius = UDim.new(0,8)
+local EmoteIdBoxStroke = Instance.new("UIStroke", EmoteIdBox)
+EmoteIdBoxStroke.Color = Color3.fromRGB(70,70,70)
+EmoteIdBoxStroke.Thickness = 1
+
+-- Botão de ativar emote
+local EmoteButton = Instance.new("TextButton", MainFrame)
+EmoteButton.Name = "EmoteButton"
+EmoteButton.BackgroundColor3 = Color3.fromRGB(120,0,120)
+EmoteButton.BorderSizePixel = 0
+EmoteButton.Position = UDim2.new(0.1,0,0.71,0)
+EmoteButton.Size = UDim2.new(0.35,0,0,30)
+EmoteButton.Font = Enum.Font.GothamBold
+EmoteButton.Text = " EMOTE"
+EmoteButton.TextColor3 = Color3.fromRGB(255,255,255)
+EmoteButton.TextSize = 11
+local EmoteButtonCorner = Instance.new("UICorner", EmoteButton)
+EmoteButtonCorner.CornerRadius = UDim.new(0,8)
+
+-- Botão de parar emote
+local StopEmoteButton = Instance.new("TextButton", MainFrame)
+StopEmoteButton.Name = "StopEmoteButton"
+StopEmoteButton.BackgroundColor3 = Color3.fromRGB(60,60,60)
+StopEmoteButton.BorderSizePixel = 0
+StopEmoteButton.Position = UDim2.new(0.55,0,0.71,0)
+StopEmoteButton.Size = UDim2.new(0.35,0,0,30)
+StopEmoteButton.Font = Enum.Font.GothamBold
+StopEmoteButton.Text = "STOP"
+StopEmoteButton.TextColor3 = Color3.fromRGB(255,255,255)
+StopEmoteButton.TextSize = 11
+local StopEmoteButtonCorner = Instance.new("UICorner", StopEmoteButton)
+StopEmoteButtonCorner.CornerRadius = UDim.new(0,8)
+
+-- Labels de status
+local StatusLabel = Instance.new("TextLabel", MainFrame)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Position = UDim2.new(0.05,0,0.82,0)
+StatusLabel.Size = UDim2.new(0.9,0,0,25)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Text = "Status: Aguardando..."
+StatusLabel.TextColor3 = Color3.fromRGB(180,180,180)
+StatusLabel.TextSize = 11
+StatusLabel.TextWrapped = true
+
+local DebugLabel = Instance.new("TextLabel", MainFrame)
+DebugLabel.BackgroundTransparency = 1
+DebugLabel.Position = UDim2.new(0.05,0,0.92,0)
+DebugLabel.Size = UDim2.new(0.9,0,0,18)
+DebugLabel.Font = Enum.Font.Gotham
+DebugLabel.Text = "Linux Bang Carregado ✓"
+DebugLabel.TextColor3 = Color3.fromRGB(100,255,100)
+DebugLabel.TextSize = 10
+DebugLabel.TextWrapped = true
+
+-- FUNÇÕES DE EMOTE
+
+-- Função LoadTrack para carregar animação
+local function LoadEmoteTrack(id)
+    if currentEmoteTrack then 
+        currentEmoteTrack:Stop(EmoteSettings["Fade Out"]) 
+        currentEmoteTrack = nil
+    end
+    
+    local animId
+    local ok, result = pcall(function() 
+        return game:GetObjects("rbxassetid://" .. tostring(id)) 
+    end)
+    
+    if ok and result and #result > 0 then
+        local anim = result[1]
+        if anim:IsA("Animation") then
+            animId = anim.AnimationId
+        else
+            animId = "rbxassetid://" .. tostring(id)
+        end
+    else
+        animId = "rbxassetid://" .. tostring(id)
+    end
+    
+    local newAnim = Instance.new("Animation")
+    newAnim.AnimationId = animId
+    local newTrack = humanoid:LoadAnimation(newAnim)
+    newTrack.Priority = Enum.AnimationPriority.Action4
+    
+    local weight = EmoteSettings["Weight"]
+    if weight == 0 then weight = 0.001 end
+    
+    newTrack:Play(EmoteSettings["Fade In"], weight, EmoteSettings["Speed"])
+    newTrack.Looped = true -- IMPORTANTE: Loop infinito
+    currentEmoteTrack = newTrack
+    currentEmoteTrack.TimePosition = math.clamp(EmoteSettings["Time Position"], 0, 1) * currentEmoteTrack.Length
+    currentEmoteTrack.Priority = Enum.AnimationPriority.Action4
+    
+    print("🎭 Emote em loop ativado!")
+    return newTrack
+end
+
+-- Sistema de loop contínuo do emote (sem parar por movimento)
+local function startEmoteLoop()
+    if emoteConnection then emoteConnection:Disconnect() end
+    
+    emoteConnection = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if isEmoteActive and currentEmoteTrack and not currentEmoteTrack.IsPlaying then
+                -- Recarregar emote se parou por algum motivo
+                local currentId = EmoteIdBox.Text
+                if currentId and currentId ~= "" then
+                    LoadEmoteTrack(currentId)
+                end
+            end
+        end)
+    end)
+end
+
+local function startEmote()
+    local emoteId = EmoteIdBox.Text
+    if not emoteId or emoteId == "" then
+        DebugLabel.Text = "Erro: Insira um ID de animação!"
+        DebugLabel.TextColor3 = Color3.fromRGB(255,100,100)
+        return
+    end
+    
+    isEmoteActive = true
+    LoadEmoteTrack(emoteId)
+    startEmoteLoop()
+    DebugLabel.Text = "Emote ativo em loop ✓"
+    DebugLabel.TextColor3 = Color3.fromRGB(100,255,100)
+end
+
+local function stopEmote()
+    isEmoteActive = false
+    if currentEmoteTrack then
+        currentEmoteTrack:Stop(EmoteSettings["Fade Out"])
+        currentEmoteTrack = nil
+    end
+    if emoteConnection then
+        emoteConnection:Disconnect()
+        emoteConnection = nil
+    end
+    DebugLabel.Text = "Emote parado ✓"
+    DebugLabel.TextColor3 = Color3.fromRGB(255,100,100)
+end
+
+-- FUNÇÕES DE FOLLOW (mantidas iguais)
+
+-- Utils
+local function findPlayerByName(name)
+    if not name or name == "" then return nil end
+    name = string.lower(name)
+    for _, pl in pairs(Players:GetPlayers()) do
+        local pn = string.lower(pl.Name)
+        local dn = string.lower(pl.DisplayName or "")
+        if string.find(pn, name) or string.find(dn, name) then
+            return pl
+        end
+    end
+    return nil
+end
+
+-- NoClip
+local function enableNoclip()
+    if noclipConnection then noclipConnection:Disconnect() end
+    noclipConnection = RunService.Stepped:Connect(function()
+        pcall(function()
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end)
+    isNoclipEnabled = true
+end
+
+local function disableNoclip()
+    if noclipConnection then noclipConnection:Disconnect() noclipConnection = nil end
+    pcall(function()
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end)
+    isNoclipEnabled = false
+end
+
+-- Seguir ATRÁS
+local desiredDistance = 1
+local lerpSpeed = 0.45
+
+local function startFollowing()
+    if not targetPlayer then return end
+    if followConnection then followConnection:Disconnect() followConnection = nil end
+
+    followConnection = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if not targetPlayer or not targetPlayer.Character then
+                StatusLabel.Text = "Aguardando respawn do target..."
+                return
+            end
+            local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local localChar = LocalPlayer.Character
+            local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
+
+            if targetRoot and localRoot then
+                local behindCFrame = targetRoot.CFrame * CFrame.new(0, 0, desiredDistance)
+                local behindPos = Vector3.new(behindCFrame.Position.X, targetRoot.Position.Y, behindCFrame.Position.Z)
+                local targetLookAt = CFrame.new(behindPos, targetRoot.Position)
+                local newCFrame = localRoot.CFrame:Lerp(targetLookAt, lerpSpeed)
+                localRoot.CFrame = newCFrame
+
+                local dist = (targetRoot.Position - localRoot.Position).Magnitude
+                StatusLabel.Text = "Seguindo: " .. targetPlayer.Name .. " | Emote: " .. (isEmoteActive and "ON" or "OFF")
+                StatusLabel.TextColor3 = Color3.fromRGB(100,255,100)
+            end
+        end)
+    end)
+
+    isFollowing = true
+end
+
+local function stopFollowing()
+    if followConnection then
+        followConnection:Disconnect()
+        followConnection = nil
+    end
+    disableNoclip()
+    isFollowing = false
+    targetPlayer = nil
+    StatusLabel.Text = "Status: Parado"
+    StatusLabel.TextColor3 = Color3.fromRGB(180,180,180)
+end
+
+-- EVENTOS DOS BOTÕES
+
+-- Botão de follow
+FollowButton.MouseButton1Click:Connect(function()
+    local name = PlayerNameBox.Text
+    if not name or name == "" then
+        StatusLabel.Text = "Erro: Digite um nome!"
+        StatusLabel.TextColor3 = Color3.fromRGB(255,100,100)
+        return
+    end
+
+    local found = findPlayerByName(name)
+    if not found then
+        StatusLabel.Text = "Jogador '"..name.."' não encontrado!"
+        StatusLabel.TextColor3 = Color3.fromRGB(255,100,100)
+        return
+    end
+
+    if found == LocalPlayer then
+        StatusLabel.Text = "Erro: Não pode seguir a si mesmo!"
+        StatusLabel.TextColor3 = Color3.fromRGB(255,100,100)
+        return
+    end
+
+    if isFollowing then stopFollowing() task.wait(0.08) end
+    targetPlayer = found
+    enableNoclip()
+    startFollowing()
+    
+    -- Auto-ativar emote quando começar a seguir
+    if not isEmoteActive then
+        startEmote()
+    end
+    
+    DebugLabel.Text = "Target: " .. found.Name .. " ✓"
+    DebugLabel.TextColor3 = Color3.fromRGB(100,255,100)
+end)
+
+-- Botão de parar follow
+StopButton.MouseButton1Click:Connect(function()
+    stopFollowing()
+    stopEmote() -- Para o emote junto
+    DebugLabel.Text = "Follow e emote parados ✓"
+    DebugLabel.TextColor3 = Color3.fromRGB(255,100,100)
+end)
+
+-- Botão de emote
+EmoteButton.MouseButton1Click:Connect(function()
+    startEmote()
+end)
+
+-- Botão de parar emote
+StopEmoteButton.MouseButton1Click:Connect(function()
+    stopEmote()
+end)
+
+-- Efeitos visuais dos botões
+FollowButton.MouseEnter:Connect(function() FollowButton.BackgroundColor3 = Color3.fromRGB(0,150,0) end)
+FollowButton.MouseLeave:Connect(function() FollowButton.BackgroundColor3 = Color3.fromRGB(0,120,0) end)
+StopButton.MouseEnter:Connect(function() StopButton.BackgroundColor3 = Color3.fromRGB(150,0,0) end)
+StopButton.MouseLeave:Connect(function() StopButton.BackgroundColor3 = Color3.fromRGB(120,0,0) end)
+EmoteButton.MouseEnter:Connect(function() EmoteButton.BackgroundColor3 = Color3.fromRGB(150,0,150) end)
+EmoteButton.MouseLeave:Connect(function() EmoteButton.BackgroundColor3 = Color3.fromRGB(120,0,120) end)
+StopEmoteButton.MouseEnter:Connect(function() StopEmoteButton.BackgroundColor3 = Color3.fromRGB(80,80,80) end)
+StopEmoteButton.MouseLeave:Connect(function() StopEmoteButton.BackgroundColor3 = Color3.fromRGB(60,60,60) end)
+
+-- Toggle GUI com Insert
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.Insert then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+-- Limpeza quando jogadores saem
+Players.PlayerRemoving:Connect(function(pl)
+    if pl == targetPlayer then
+        stopFollowing()
+    end
+end)
+
+-- Reconectar quando respawnar
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = newCharacter:WaitForChild("Humanoid")
+    
+    task.wait(1) -- Esperar carregar completamente
+    
+    if isNoclipEnabled and isFollowing then
+        enableNoclip()
+    end
+    
+    if isEmoteActive then
+        -- Reativar emote após respawn
+        task.wait(0.5)
+        local currentId = EmoteIdBox.Text
+        if currentId and currentId ~= "" then
+            LoadEmoteTrack(currentId)
+            startEmoteLoop()
+        end
+    end
+end)
+
+print("=== FOLLOW PLAYER + EMOTE SYSTEM CARREGADO ===")
+print("🎮 Tecla Insert para mostrar/esconder GUI")
+print("🎭 O emote ficará em loop infinito enquanto ativo!")
+print("✅ Sistema integrado com sucesso!")
